@@ -54,6 +54,10 @@ static mut BUF_IN: Aligned<A4, [i16; BUF_SZ_SAMPLES]> = Aligned([0i16; BUF_SZ_SA
 /// Static DMA buffer, circularly read by the DMA engine to pipe samples OUT of the eurorack-pmod.
 static mut BUF_OUT: Aligned<A4, [i16; BUF_SZ_SAMPLES]> = Aligned([0i16; BUF_SZ_SAMPLES]);
 
+const FB_SIZE_X: usize = 720;
+const FB_SIZE_Y: usize = 720;
+static mut FB: Aligned<A4, [u32; FB_SIZE_X*FB_SIZE_Y]> = Aligned([0u32; FB_SIZE_X*FB_SIZE_Y]);
+
 /// Some global state to track how long IRQs are taking to service.
 static mut LAST_IRQ: u32 = 0;
 static mut LAST_IRQ_LEN: u32 = 0;
@@ -64,7 +68,7 @@ static mut KARLSEN_LPF: Option<KarlsenLpf> = None;
 
 // Map the RISCV IRQ PLIC onto the fixed address present in the VexRISCV implementation.
 // TODO: ideally fetch this from the svf, its currently not exported by `svd2rust`!
-riscv::plic_context!(PLIC0, litex_sys::PLIC_BASE, 0, VexInterrupt, VexPriority);
+riscv::plic_context!(PLIC0, 0xF0C00000, 0, VexInterrupt, VexPriority);
 
 // Create the HAL bindings for the remaining LiteX peripherals.
 
@@ -76,12 +80,12 @@ litex_hal::timer! {
     Timer: litex_pac::TIMER0,
 }
 
-
 /// Called once per IRQ to service the appropriate half of the DMA buffer.
 /// Warn: this is run in IRQ context and blocks all IRQs while it is running.
 /// You will want to re-think if this lives in a world with other IRQs.
 fn process(dsp: &mut KarlsenLpf, buf_out: &mut [i16], buf_in: &[i16]) {
     for i in 0..(buf_in.len()/N_CHANNELS) {
+        /*
         // Convert all input channels to an approprate fixed-point representation
         let x_in: [Fix; N_CHANNELS] = [
             Fix::from_bits(buf_in[N_CHANNELS*i+0] as i32),
@@ -91,13 +95,22 @@ fn process(dsp: &mut KarlsenLpf, buf_out: &mut [i16], buf_in: &[i16]) {
         ];
         // Feed them into our DSP function
         let y: Fix = dsp.proc(x_in[0], x_in[1], x_in[2]);
+        */
 
+        unsafe {
+            let ix = ((buf_in[N_CHANNELS*i+0] as i32 * (FB_SIZE_X/2) as i32) >> 16) as usize;
+            let iy = ((buf_in[N_CHANNELS*i+1] as i32 * (FB_SIZE_Y/2) as i32) >> 16) as usize;
+            FB[(FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix)] = 0xFF;
+        }
+
+        /*
         // We only have 1 output, so use that for output 1 and just
         // mirror inputs straight to outputs for the rest.
         buf_out[N_CHANNELS*i+0] = y.to_bits() as i16;
         buf_out[N_CHANNELS*i+1] = x_in[1].to_bits() as i16;
         buf_out[N_CHANNELS*i+2] = x_in[2].to_bits() as i16;
         buf_out[N_CHANNELS*i+3] = x_in[3].to_bits() as i16;
+        */
     }
 }
 
@@ -169,6 +182,12 @@ unsafe fn irq_handler() {
     LAST_IRQ_LEN = trace_end - trace;
 }
 
+unsafe fn fb_cls() {
+    for p in 0..(FB_SIZE_X*FB_SIZE_Y) {
+            FB[p] = (FB[p] >> 1);
+    }
+}
+
 
 #[entry]
 fn main() -> ! {
@@ -200,6 +219,10 @@ fn main() -> ! {
         plic.set_priority(dma_irq, VexPriority::from(1));
         plic.enable_interrupt(dma_irq);
 
+        peripherals.VIDEO_FRAMEBUFFER.dma_base().write(|w| w.bits(FB.as_mut_ptr() as u32));
+        fb_cls();
+        peripherals.VIDEO_FRAMEBUFFER.dma_enable().write(|w| w.bits(1u32));
+
         // Enable machine external interrupts (basically everything added on by LiteX).
         riscv::register::mie::set_mext();
 
@@ -210,6 +233,7 @@ fn main() -> ! {
     loop {
         unsafe {
             fence();
+            /*
 
             // Print the current value of every input and output channel.
             for i in 0..4 {
@@ -222,8 +246,9 @@ fn main() -> ! {
             if LAST_IRQ_PERIOD != 0 {
                 log::info!("irq_load_percent: {}", (LAST_IRQ_LEN * 100) / LAST_IRQ_PERIOD);
             }
-        }
+            */
 
-        timer.delay_ms(500u32);
+            fb_cls();
+        }
     }
 }
