@@ -98,9 +98,13 @@ fn process(dsp: &mut KarlsenLpf, buf_out: &mut [i16], buf_in: &[i16]) {
         */
 
         unsafe {
-            let ix = ((buf_in[N_CHANNELS*i+0] as i32 * (FB_SIZE_X/2) as i32) >> 16) as usize;
-            let iy = ((buf_in[N_CHANNELS*i+1] as i32 * (FB_SIZE_Y/2) as i32) >> 16) as usize;
-            FB[(FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix)] = 0xFF;
+            let ix = ((buf_in[N_CHANNELS*i+0] as i32 * (FB_SIZE_X) as i32) >> 16) as usize;
+            let iy = ((buf_in[N_CHANNELS*i+1] as i32 * (FB_SIZE_Y) as i32) >> 16) as usize;
+            FB[(FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/4)] = 0xFF;
+            FB[(FB_SIZE_Y*(iy+1+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/4)] = 0xDF;
+            FB[(FB_SIZE_Y*(iy-1+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/4)] = 0xDF;
+            FB[(FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+1+FB_SIZE_X/4)] = 0xDF;
+            FB[(FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+1+FB_SIZE_X/4)] = 0xDF;
         }
 
         /*
