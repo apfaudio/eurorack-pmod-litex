@@ -6,13 +6,121 @@ from litex.soc.interconnect.csr import *
 
 from litex.soc.cores.gpio import GPIOOut
 
+from litex.soc.cores.dma import *
+from litex.soc.interconnect.stream import ClockDomainCrossing
+from litex.soc.interconnect.csr import *
+from litex.soc.interconnect import wishbone
+from litex.soc.interconnect.csr_eventmanager import *
+
 SOURCES_ROOT = os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
         "../deps/eurorack-pmod/gateware"
         )
 
 class EurorackPmod(Module, AutoCSR):
-    def __init__(self, platform, pads, w=16, output_csr_read_only=True, sim=False):
+    def add_fifos(self, depth=512):
+
+        layout_rfifo = [("in0", 16),
+                        ("in1", 16),
+                        ("in2", 16),
+                        ("in3", 16)]
+
+        cdc_in0 = ClockDomainCrossing(
+                layout=layout_rfifo,
+                cd_from="clk_fs",
+                cd_to="sys"
+        )
+        self.submodules += cdc_in0
+
+        rfifo = stream.SyncFIFO(layout_rfifo, depth)
+        self.submodules += rfifo
+        rfifo_almost_full = rfifo.level > (depth - 4)
+
+        self.rlevel = CSRStatus(16)
+        self.comb += [
+            self.rlevel.status.eq(rfifo.level)
+        ]
+
+        # IRQ logic
+        self.ev = EventManager()
+        self.ev.almost_full = EventSourceProcess(edge="rising")
+        self.submodules += self.ev
+        self.submodules += self.ev.almost_full
+        self.comb += [
+            self.ev.almost_full.trigger.eq(rfifo_almost_full),
+        ]
+        self.ev.finalize()
+
+        self.comb += [
+            # CDC <-> I2S (clk_fs domain)
+            # ADC -> CDC
+            cdc_in0.sink.valid.eq(1),
+            cdc_in0.sink.in0.eq(self.cal_in0),
+            cdc_in0.sink.in1.eq(self.cal_in1),
+            cdc_in0.sink.in2.eq(self.cal_in2),
+            cdc_in0.sink.in3.eq(self.cal_in3),
+
+            # ADC -> CDC -> Router -> DRAM
+            cdc_in0.source.connect(rfifo.sink),
+        ]
+
+        self.bus = bus = wishbone.Interface(data_width=32, address_width=32, addressing="word")
+        rd_ack = Signal()
+        wr_ack = Signal()
+        self.comb += [
+            If(bus.we,
+                bus.ack.eq(wr_ack),
+            ).Else(
+                bus.ack.eq(rd_ack),
+            )
+        ]
+
+        bus_read    = Signal()
+        bus_read_d  = Signal()
+        rd_ack_pipe = Signal()
+        self.comb += bus_read.eq(bus.cyc & bus.stb & ~bus.we & (bus.cti == 0))
+        self.sync += [  # This is the bus responder -- only works for uncached memory regions
+            bus_read_d.eq(bus_read),
+            If(bus_read & ~bus_read_d, # One response, one cycle
+                rd_ack_pipe.eq(1),
+                If(rfifo.level != 0,
+                    bus.dat_r.eq(rfifo.source.payload.in0 | rfifo.source.payload.in1 << 16),
+                    rfifo.source.ready.eq(1),
+                ).Else(
+                    # Don't stall the bus indefinitely if we try to read from an empty fifo...just
+                    # return garbage
+                    bus.dat_r.eq(0xdeadbeef),
+                    rfifo.source.ready.eq(0),
+                )
+            ).Else(
+                rfifo.source.ready.eq(0),
+                rd_ack_pipe.eq(0),
+            ),
+            rd_ack.eq(rd_ack_pipe),
+        ]
+
+        # BUS responder // WRITE side
+        """
+        self.sync += [
+            # This is the bus responder -- need to check how this interacts with uncached memory
+            # region
+            If(bus.cyc & bus.stb & bus.we & ~bus.ack,
+                If(~fifo.full,
+                    fifo.wr_d.eq(bus.dat_w),
+                    fifo.wren.eq(~tx_reset),
+                    wr_ack.eq(1),
+                ).Else(
+                    fifo.wren.eq(0),
+                    wr_ack.eq(0),
+                )
+            ).Else(
+                fifo.wren.eq(0),
+                wr_ack.eq(0),
+            )
+            ]
+        """
+
+    def __init__(self, platform, pads, w=16, output_csr_read_only=True, with_fifos=True, sim=False):
         self.w = w
         self.cal_mem_file = os.path.join(SOURCES_ROOT, "cal/cal_mem.hex")
         self.codec_cfg_file = os.path.join(SOURCES_ROOT, "drivers/ak4619-cfg.hex")
@@ -191,3 +299,6 @@ class EurorackPmod(Module, AutoCSR):
                     self.cal_out2.eq(self.csr_cal_out2.storage),
                     self.cal_out3.eq(self.csr_cal_out3.storage),
             ]
+
+        if with_fifos:
+            self.add_fifos()

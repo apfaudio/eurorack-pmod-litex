@@ -10,10 +10,9 @@ from litex.soc.cores.dma import *
 from litex.soc.interconnect import wishbone
 from litex.soc.interconnect.stream import ClockDomainCrossing
 from litex.soc.interconnect.csr_eventmanager import *
+from litex.soc.integration.soc import SoCRegion
 
 from rtl.eurorack_pmod_wrapper import *
-from rtl.dsp_wrapper import *
-from rtl.dma_router import *
 
 CLK_FREQ_SYS = 5e6
 CLK_FREQ_256FS = 1e6
@@ -49,9 +48,9 @@ def add_eurorack_pmod(soc):
     eurorack_pmod_pads = soc.platform.request("eurorack_pmod_p0")
     eurorack_pmod = EurorackPmod(soc.platform, eurorack_pmod_pads, sim=True)
     soc.add_module("eurorack_pmod0", eurorack_pmod)
-
-    # Now instantiate the DMA router and connect it to the EurorackPmod.
-    add_dma_router(soc, eurorack_pmod, output_capable=output_capable)
+    soc.bus.add_slave("i2s", eurorack_pmod.bus,
+                      SoCRegion(origin=0xb1000000, size=512*16, cached=False))
+    soc.irq.add("eurorack_pmod0", use_loc_if_exists=True)
 
 def sim_soc_extension(sim_config, soc):
     soc.platform.add_extension(_io_extra_clockers)

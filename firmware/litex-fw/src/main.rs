@@ -37,34 +37,17 @@ use dsp::*;
 /// Number of channels per section (4x input, 4x output)
 const N_CHANNELS: usize = 4;
 
-/// Size of DMA buffers in 32-bit words.
-const BUF_SZ_WORDS: usize = 512;
-
-/// Each sample is 16-bits wide, so each buffer can store twice as many samples.
-const BUF_SZ_SAMPLES: usize = BUF_SZ_WORDS * 2;
-
-/// Each IRQ shall process half of the buffers as they are circularly serviced.
-const BUF_SZ_SAMPLES_PER_IRQ: usize = BUF_SZ_SAMPLES / 2;
-
-// Note: these buffers MUST be word-aligned because the DMA engine iterates at word granularity.
-
-/// Static DMA buffer, circularly written to by the DMA engine to pipe samples IN from the eurorack-pmod.
-static mut BUF_IN: Aligned<A4, [i16; BUF_SZ_SAMPLES]> = Aligned([0i16; BUF_SZ_SAMPLES]);
-
-/// Static DMA buffer, circularly read by the DMA engine to pipe samples OUT of the eurorack-pmod.
-static mut BUF_OUT: Aligned<A4, [i16; BUF_SZ_SAMPLES]> = Aligned([0i16; BUF_SZ_SAMPLES]);
-
 /// Some global state to track how long IRQs are taking to service.
 static mut LAST_IRQ: u32 = 0;
 static mut LAST_IRQ_LEN: u32 = 0;
 static mut LAST_IRQ_PERIOD: u32 = 0;
 
-/// Persistent state required for LPF DSP operations.
-static mut KARLSEN_LPF: Option<KarlsenLpf> = None;
+static mut LAST_CH0: i16 = 0;
+static mut LAST_CH1: i16 = 0;
 
 // Map the RISCV IRQ PLIC onto the fixed address present in the VexRISCV implementation.
 // TODO: ideally fetch this from the svf, its currently not exported by `svd2rust`!
-riscv::plic_context!(PLIC0, litex_sys::PLIC_BASE, 0, VexInterrupt, VexPriority);
+riscv::plic_context!(PLIC0, 0xf0c00000, 0, VexInterrupt, VexPriority);
 
 // Create the HAL bindings for the remaining LiteX peripherals.
 
@@ -76,45 +59,9 @@ litex_hal::timer! {
     Timer: litex_pac::TIMER0,
 }
 
-
-/// Called once per IRQ to service the appropriate half of the DMA buffer.
-/// Warn: this is run in IRQ context and blocks all IRQs while it is running.
-/// You will want to re-think if this lives in a world with other IRQs.
-fn process(dsp: &mut KarlsenLpf, buf_out: &mut [i16], buf_in: &[i16]) {
-    for i in 0..(buf_in.len()/N_CHANNELS) {
-        // Convert all input channels to an approprate fixed-point representation
-        let x_in: [Fix; N_CHANNELS] = [
-            Fix::from_bits(buf_in[N_CHANNELS*i+0] as i32),
-            Fix::from_bits(buf_in[N_CHANNELS*i+1] as i32),
-            Fix::from_bits(buf_in[N_CHANNELS*i+2] as i32),
-            Fix::from_bits(buf_in[N_CHANNELS*i+3] as i32),
-        ];
-        // Feed them into our DSP function
-        let y: Fix = dsp.proc(x_in[0], x_in[1], x_in[2]);
-
-        // We only have 1 output, so use that for output 1 and just
-        // mirror inputs straight to outputs for the rest.
-        buf_out[N_CHANNELS*i+0] = y.to_bits() as i16;
-        buf_out[N_CHANNELS*i+1] = x_in[1].to_bits() as i16;
-        buf_out[N_CHANNELS*i+2] = x_in[2].to_bits() as i16;
-        buf_out[N_CHANNELS*i+3] = x_in[3].to_bits() as i16;
-    }
-}
-
-/// Flush all VexRiscv caches, this is necessary for when we are writing to
-/// a buffer which will be read by the DMA engine soon.
-unsafe fn fence() {
-    asm!("fence iorw, iorw");
-    // This magic instruction was just found in the LiteX source tree in
-    // the C implementation which is copied over for CSR operations.
-    // Without it, the caches aren't completely flushed.
-    asm!(".word(0x500F)");
-}
-
 /// Handler for ALL IRQs.
 #[export_name = "DefaultHandler"]
 unsafe fn irq_handler() {
-
     // First, claim the IRQ for this core.
     // This should only ever fail if we have multiple cores claiming irqs
     // in an SMP environment (which is not the case for this simple example).
@@ -128,33 +75,22 @@ unsafe fn irq_handler() {
     LAST_IRQ = trace;
 
     match pending_irq.pac_irq {
-        pac::Interrupt::DMA_ROUTER0 => {
+        pac::Interrupt::EURORACK_PMOD0 => {
 
-            // Read the current position in the circular DMA buffer to determine whether
-            // we need to service the first or last half of the DMA buffer.
+            let pending_subtype = peripherals.EURORACK_PMOD0.ev_pending().read().bits();
 
-            let offset = peripherals.DMA_ROUTER0.offset_words().read().bits();
-            let pending_subtype = peripherals.DMA_ROUTER0.ev_pending().read().bits();
+            while peripherals.EURORACK_PMOD0.rlevel().read().bits() > 8 {
+                let rdat = core::ptr::read_volatile(0xb100_0000 as *mut u32);
+                let ch0raw = rdat as i16;
+                let ch1raw = (rdat >> 16) as i16;
+                let ch0 = Fix::from_bits(ch0raw.into());
+                let ch1 = Fix::from_bits(ch1raw.into());
 
-            if let Some(ref mut dsp) = KARLSEN_LPF {
-                if offset as usize == ((BUF_SZ_WORDS/2)+1) {
-                    fence();
-                    process(dsp,
-                            &mut BUF_OUT[0..(BUF_SZ_SAMPLES/2)],
-                            &BUF_IN[0..(BUF_SZ_SAMPLES/2)]);
-                }
-
-                if offset as usize == (BUF_SZ_WORDS-1) {
-                    fence();
-                    process(dsp,
-                            &mut BUF_OUT[(BUF_SZ_SAMPLES/2)..(BUF_SZ_SAMPLES)],
-                            &BUF_IN[(BUF_SZ_SAMPLES/2)..(BUF_SZ_SAMPLES)]);
-                }
+                LAST_CH0 = ch0raw;
+                LAST_CH1 = ch1raw;
             }
 
-            peripherals.DMA_ROUTER0.ev_pending().write(|w| w.bits(pending_subtype));
-
-            fence();
+            peripherals.EURORACK_PMOD0.ev_pending().write(|w| w.bits(pending_subtype));
         },
         _ => {
             // We shouldn't have any other types of IRQ...
@@ -181,21 +117,11 @@ fn main() -> ! {
     let mut timer = Timer::new(peripherals.TIMER0, litex_sys::CONFIG_CLOCK_FREQUENCY);
 
     unsafe {
-        // Create an instance of our DSP function which has some internal state.
-        // Rust irq / scoped irq crates are neater for this kind of thing but
-        // using statics to reduce dependencies / make it obvious what this is doing.
-        KARLSEN_LPF = Some(KarlsenLpf::new());
-
-        // Configure the DMA engine such that it uses our static buffers, and start it.
-        peripherals.DMA_ROUTER0.base_writer().write(|w| w.bits(BUF_IN.as_mut_ptr() as u32));
-        peripherals.DMA_ROUTER0.base_reader().write(|w| w.bits(BUF_OUT.as_ptr() as u32));
-        peripherals.DMA_ROUTER0.length_words().write(|w| w.bits(BUF_SZ_WORDS as u32));
-        peripherals.DMA_ROUTER0.enable().write(|w| w.bits(1u32));
-        peripherals.DMA_ROUTER0.ev_enable().write(|w| w.half().bit(true));
+        peripherals.EURORACK_PMOD0.ev_enable().write(|w| w.almost_full().bit(true));
 
         // RISC-V PLIC configuration.
         let mut plic = PLIC0::new();
-        let dma_irq = VexInterrupt::from(pac::Interrupt::DMA_ROUTER0);
+        let dma_irq = VexInterrupt::from(pac::Interrupt::EURORACK_PMOD0);
         plic.set_threshold(VexPriority::from(0));
         plic.set_priority(dma_irq, VexPriority::from(1));
         plic.enable_interrupt(dma_irq);
@@ -209,12 +135,8 @@ fn main() -> ! {
 
     loop {
         unsafe {
-            fence();
-
-            // Print the current value of every input and output channel.
-            for i in 0..4 {
-                log::info!("{:x}@{:x},{:x}", i, BUF_IN[i], BUF_OUT[i]);
-            }
+            log::info!("ch0: {}", LAST_CH0);
+            log::info!("ch1: {}", LAST_CH1);
 
             // Print out some metrics as to how long our DSP operations are taking.
             log::info!("irq_period: {}", LAST_IRQ_PERIOD);

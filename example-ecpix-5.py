@@ -15,12 +15,11 @@ from litex.soc.cores.dma import *
 from litex.soc.interconnect import wishbone
 from litex.soc.interconnect.stream import ClockDomainCrossing
 from litex.soc.interconnect.csr_eventmanager import *
+from litex.soc.integration.soc import SoCRegion
 
 from litex_boards.targets.lambdaconcept_ecpix5 import *
 
 from rtl.eurorack_pmod_wrapper import *
-from rtl.dsp_wrapper import *
-from rtl.dma_router import *
 
 _io_eurorack_pmod = [
     ("eurorack_pmod_p0", 0,
@@ -53,9 +52,9 @@ def add_eurorack_pmod(soc, sample_rate=48000, dma_output_capable=True):
     eurorack_pmod_pads = soc.platform.request("eurorack_pmod_p0")
     eurorack_pmod = EurorackPmod(soc.platform, eurorack_pmod_pads)
     soc.add_module("eurorack_pmod0", eurorack_pmod)
-
-    # Now instantiate the DMA router and connect it to the EurorackPmod.
-    add_dma_router(soc, eurorack_pmod, output_capable=dma_output_capable)
+    soc.bus.add_slave("i2s", eurorack_pmod.bus,
+                      SoCRegion(origin=0xb1000000, size=512*16, cached=False))
+    soc.irq.add("eurorack_pmod0", use_loc_if_exists=True)
 
 def main():
     from litex.build.parser import LiteXArgumentParser
