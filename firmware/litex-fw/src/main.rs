@@ -50,6 +50,10 @@ static mut LAST_RDAT: u32 = 0;
 // TODO: ideally fetch this from the svf, its currently not exported by `svd2rust`!
 riscv::plic_context!(PLIC0, 0xf0c00000, 0, VexInterrupt, VexPriority);
 
+const FB_SIZE_X: usize = 720;
+const FB_SIZE_Y: usize = 720;
+static mut FB: Aligned<A4, [u32; FB_SIZE_X*FB_SIZE_Y]> = Aligned([0u32; FB_SIZE_X*FB_SIZE_Y]);
+
 // Create the HAL bindings for the remaining LiteX peripherals.
 
 litex_hal::uart! {
@@ -90,6 +94,10 @@ unsafe fn irq_handler() {
 
                 LAST_CH0 = ch0raw;
                 LAST_CH1 = ch1raw;
+
+                let ix = ((ch0raw as i32 * (FB_SIZE_X) as i32) >> 16) as usize;
+                let iy = ((ch1raw as i32 * (FB_SIZE_Y) as i32) >> 16) as usize;
+                FB[(FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/4)] = 0xFF;
             }
 
             peripherals.EURORACK_PMOD0.ev_pending().write(|w| w.bits(pending_subtype));
@@ -128,6 +136,9 @@ fn main() -> ! {
         plic.set_priority(dma_irq, VexPriority::from(1));
         plic.enable_interrupt(dma_irq);
 
+        peripherals.VIDEO_FRAMEBUFFER.dma_base().write(|w| w.bits(FB.as_mut_ptr() as u32));
+        peripherals.VIDEO_FRAMEBUFFER.dma_enable().write(|w| w.bits(1u32));
+
         // Enable machine external interrupts (basically everything added on by LiteX).
         riscv::register::mie::set_mext();
 
@@ -137,6 +148,7 @@ fn main() -> ! {
 
     loop {
         unsafe {
+            /*
             log::info!("rdat: {:x}", LAST_RDAT);
             log::info!("ch0: {}", LAST_CH0);
             log::info!("ch1: {}", LAST_CH1);
@@ -147,6 +159,13 @@ fn main() -> ! {
             if LAST_IRQ_PERIOD != 0 {
                 log::info!("irq_load_percent: {}", (LAST_IRQ_LEN * 100) / LAST_IRQ_PERIOD);
             }
+            */
+
+            /*
+            for p in 0..(FB_SIZE_X*FB_SIZE_Y) {
+                    FB[p] = 0;//(FB[p] >> 1);
+            }
+            */
         }
 
         timer.delay_ms(500u32);

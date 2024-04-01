@@ -68,6 +68,7 @@ def main():
         device                 = args.device,
         sys_clk_freq           = args.sys_clk_freq,
         toolchain              = args.toolchain,
+        with_video_framebuffer = True,
         **parser.soc_argdict
     )
 
