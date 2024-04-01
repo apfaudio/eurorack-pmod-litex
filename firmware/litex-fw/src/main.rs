@@ -44,6 +44,7 @@ static mut LAST_IRQ_PERIOD: u32 = 0;
 
 static mut LAST_CH0: i16 = 0;
 static mut LAST_CH1: i16 = 0;
+static mut LAST_RDAT: u32 = 0;
 
 // Map the RISCV IRQ PLIC onto the fixed address present in the VexRISCV implementation.
 // TODO: ideally fetch this from the svf, its currently not exported by `svd2rust`!
@@ -81,6 +82,7 @@ unsafe fn irq_handler() {
 
             while peripherals.EURORACK_PMOD0.rlevel().read().bits() > 8 {
                 let rdat = core::ptr::read_volatile(0xb100_0000 as *mut u32);
+                LAST_RDAT=rdat;
                 let ch0raw = rdat as i16;
                 let ch1raw = (rdat >> 16) as i16;
                 let ch0 = Fix::from_bits(ch0raw.into());
@@ -135,6 +137,7 @@ fn main() -> ! {
 
     loop {
         unsafe {
+            log::info!("rdat: {:x}", LAST_RDAT);
             log::info!("ch0: {}", LAST_CH0);
             log::info!("ch1: {}", LAST_CH1);
 
