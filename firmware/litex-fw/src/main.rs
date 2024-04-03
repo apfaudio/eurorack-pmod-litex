@@ -53,7 +53,7 @@ riscv::plic_context!(PLIC0, 0xf0c00000, 0, VexInterrupt, VexPriority);
 const FB_SIZE_X: usize = 720;
 const FB_SIZE_Y: usize = 720;
 const FB_XOFFS: usize = 80;
-static mut FB: Aligned<A4, [u32; FB_SIZE_X*FB_SIZE_Y/4]> = Aligned([0u32; FB_SIZE_X*FB_SIZE_Y/4]);
+static mut FB: Aligned<A4, [u8; FB_SIZE_X*FB_SIZE_Y]> = Aligned([0u8; FB_SIZE_X*FB_SIZE_Y]);
 
 // Create the HAL bindings for the remaining LiteX peripherals.
 
@@ -98,7 +98,7 @@ unsafe fn irq_handler() {
 
                 let ix = ((ch0raw as i32 * (FB_SIZE_X) as i32) >> 16) as usize;
                 let iy = ((ch1raw as i32 * (FB_SIZE_Y) as i32) >> 16) as usize;
-                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/2-FB_XOFFS))/4] = 0xFF << (ix % 4)*8;
+                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/2-FB_XOFFS))] = 0xFF;
             }
 
             peripherals.EURORACK_PMOD0.ev_pending().write(|w| w.bits(pending_subtype));
@@ -162,11 +162,13 @@ fn main() -> ! {
             }
             */
 
-            for p in 0..(FB_SIZE_X*FB_SIZE_Y/4) {
-                FB[p] = (FB[p] >> 1) & 0x7f7f7f7f;
+            for p in 0..(FB_SIZE_X*FB_SIZE_Y) {
+                if FB[p] > 32 {
+                    FB[p] -= 32;
+                } else {
+                    FB[p] = 0;
+                }
             }
-
-            timer.delay_ms(50u32);
         }
 
     }
