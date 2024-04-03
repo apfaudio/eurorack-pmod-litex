@@ -122,7 +122,7 @@ class EurorackPmod(Module, AutoCSR):
 
     def __init__(self, platform, pads, w=16, output_csr_read_only=True, with_fifos=True, sim=False):
         self.w = w
-        self.cal_mem_file = os.path.join(SOURCES_ROOT, "cal/cal_mem.hex")
+        self.cal_mem_file = os.path.join(SOURCES_ROOT, "cal/cal_mem_default_r33.hex")
         self.codec_cfg_file = os.path.join(SOURCES_ROOT, "drivers/ak4619-cfg.hex")
         self.led_cfg_file = os.path.join(SOURCES_ROOT, "drivers/pca9635-cfg.hex")
 
@@ -175,7 +175,6 @@ class EurorackPmod(Module, AutoCSR):
         self.specials += Instance("eurorack_pmod",
             # Parameters
             p_W = self.w,
-            p_CAL_MEM_FILE = self.cal_mem_file,
             p_CODEC_CFG_FILE = self.codec_cfg_file,
             p_LED_CFG_FILE = self.led_cfg_file,
 

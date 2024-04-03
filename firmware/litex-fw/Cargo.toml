@@ -20,6 +20,7 @@ heapless = { version = "0.7.16", default-features = false, features = ["ufmt-imp
 ufmt = "0.2.0"
 aligned-array = "1.0.1"
 fixed = "1.24.0"
+bresenham = "0.1.1"
 
 [profile.release]
 lto = true

@@ -27,6 +27,8 @@ use riscv;
 use core::arch::asm;
 use aligned_array::{Aligned, A4};
 
+use bresenham::Bresenham;
+
 mod log;
 mod plic;
 mod dsp;
@@ -42,8 +44,8 @@ static mut LAST_IRQ: u32 = 0;
 static mut LAST_IRQ_LEN: u32 = 0;
 static mut LAST_IRQ_PERIOD: u32 = 0;
 
-static mut LAST_CH0: i16 = 0;
-static mut LAST_CH1: i16 = 0;
+static mut LAST_IX: isize = 0;
+static mut LAST_IY: isize = 0;
 static mut LAST_RDAT: u32 = 0;
 
 // Map the RISCV IRQ PLIC onto the fixed address present in the VexRISCV implementation.
@@ -87,22 +89,46 @@ unsafe fn irq_handler() {
 
             while peripherals.EURORACK_PMOD0.rlevel().read().bits() > 8 {
                 let rdat = core::ptr::read_volatile(0xb100_0000 as *mut u32);
-                LAST_RDAT=rdat;
                 let ch0raw = rdat as i16;
                 let ch1raw = (rdat >> 16) as i16;
-                let ch0 = Fix::from_bits(ch0raw.into());
-                let ch1 = Fix::from_bits(ch1raw.into());
 
-                LAST_CH0 = ch0raw;
-                LAST_CH1 = ch1raw;
+                let ix: isize = (FB_SIZE_Y/2 + ((ch0raw as i32 * (FB_SIZE_X) as i32) >> 16) as usize) as isize;
+                let iy: isize = (FB_SIZE_X/2 - FB_XOFFS + ((ch1raw as i32 * (FB_SIZE_Y) as i32) >> 16) as usize) as isize;
+                for (x, y) in Bresenham::new((LAST_IX, LAST_IY), (ix, iy)) {
+                    let fb_ix = (FB_SIZE_Y*(y as usize)) + (x as usize);
+                    if FB[fb_ix] < (0xFF - 64) {
+                        FB[fb_ix] += 64;
+                    }
+                }
 
-                let ix = ((ch0raw as i32 * (FB_SIZE_X) as i32) >> 16) as usize;
-                let iy = ((ch1raw as i32 * (FB_SIZE_Y) as i32) >> 16) as usize;
-                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/2-FB_XOFFS))] = 0xFF;
+                LAST_IX = ix;
+                LAST_IY= iy;
+
+                /*
+                if fb_ix > 0 && fb_ix < (FB_SIZE_X*(FB_SIZE_Y-2)) {
+                    if FB[fb_ix] < (0xFF - 64) {
+                        FB[fb_ix] += 64;
+                    }
+                    if FB[fb_ix+1] < (0xFF - 64) {
+                        FB[fb_ix+1] += 64;
+                    }
+                    if FB[fb_ix-1] < (0xFF - 64) {
+                        FB[fb_ix-1] += 64;
+                    }
+                    if FB[fb_ix+FB_SIZE_X] < (0xFF - 64) {
+                        FB[fb_ix+FB_SIZE_X] += 64;
+                    }
+                    if FB[fb_ix-FB_SIZE_X] < (0xFF - 64) {
+                        FB[fb_ix-FB_SIZE_X] += 64;
+                    }
+                }
+                */
+                /*
                 FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2+1)) + (ix+FB_SIZE_X/2-FB_XOFFS))] = 0xFF;
                 FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2-1)) + (ix+FB_SIZE_X/2-FB_XOFFS))] = 0xFF;
                 FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/2-FB_XOFFS+1))] = 0xFF;
                 FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/2-FB_XOFFS-1))] = 0xFF;
+                */
 
                 /*
                 FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)+1) + (ix+FB_SIZE_X/2-FB_XOFFS+1))] = 0x7F;
