@@ -99,6 +99,17 @@ unsafe fn irq_handler() {
                 let ix = ((ch0raw as i32 * (FB_SIZE_X) as i32) >> 16) as usize;
                 let iy = ((ch1raw as i32 * (FB_SIZE_Y) as i32) >> 16) as usize;
                 FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/2-FB_XOFFS))] = 0xFF;
+                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2+1)) + (ix+FB_SIZE_X/2-FB_XOFFS))] = 0xFF;
+                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2-1)) + (ix+FB_SIZE_X/2-FB_XOFFS))] = 0xFF;
+                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/2-FB_XOFFS+1))] = 0xFF;
+                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/2-FB_XOFFS-1))] = 0xFF;
+
+                /*
+                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)+1) + (ix+FB_SIZE_X/2-FB_XOFFS+1))] = 0x7F;
+                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)+1) + (ix+FB_SIZE_X/2-FB_XOFFS-1))] = 0x7F;
+                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)-1) + (ix+FB_SIZE_X/2-FB_XOFFS+1))] = 0x7F;
+                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)-1) + (ix+FB_SIZE_X/2-FB_XOFFS-1))] = 0x7F;
+                */
             }
 
             peripherals.EURORACK_PMOD0.ev_pending().write(|w| w.bits(pending_subtype));
@@ -163,11 +174,14 @@ fn main() -> ! {
             */
 
             for p in 0..(FB_SIZE_X*FB_SIZE_Y) {
+                /*
                 if FB[p] > 32 {
                     FB[p] -= 32;
                 } else {
                     FB[p] = 0;
                 }
+                */
+                FB[p] >>= 1;
             }
         }
 
