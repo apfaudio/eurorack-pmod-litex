@@ -89,20 +89,31 @@ unsafe fn irq_handler() {
 
             while peripherals.EURORACK_PMOD0.rlevel().read().bits() > 8 {
                 let rdat = core::ptr::read_volatile(0xb100_0000 as *mut u32);
-                let ch0raw = rdat as i16;
-                let ch1raw = (rdat >> 16) as i16;
+                let mut ch0raw = rdat as i16;
+                let mut ch1raw = (rdat >> 16) as i16;
 
-                let ix: isize = (FB_SIZE_Y/2 + ((ch0raw as i32 * (FB_SIZE_X) as i32) >> 16) as usize) as isize;
-                let iy: isize = (FB_SIZE_X/2 - FB_XOFFS + ((ch1raw as i32 * (FB_SIZE_Y) as i32) >> 16) as usize) as isize;
-                for (x, y) in Bresenham::new((LAST_IX, LAST_IY), (ix, iy)) {
-                    let fb_ix = (FB_SIZE_Y*(y as usize)) + (x as usize);
+                ch0raw <<= 3;
+                ch1raw <<= 3;
+
+                let ix: isize = (FB_SIZE_Y/2 - FB_XOFFS + ((ch0raw as i32 * (FB_SIZE_X) as i32) >> 16) as usize) as isize;
+                let iy: isize = (FB_SIZE_X/2 + ((ch1raw as i32 * (FB_SIZE_Y) as i32) >> 16) as usize) as isize;
+
+                if iy > 0 && iy < FB_SIZE_Y as isize {
+
+                    let fb_ix = (FB_SIZE_Y*(iy as usize)) + (ix as usize);
                     if FB[fb_ix] < (0xFF - 64) {
                         FB[fb_ix] += 64;
                     }
-                }
 
-                LAST_IX = ix;
-                LAST_IY= iy;
+                    let fb_ix2 = (FB_SIZE_Y*(((iy + LAST_IY)/2) as usize)) + (((ix + LAST_IX)/2) as usize);
+
+                    if FB[fb_ix2] < (0xFF - 64) {
+                        FB[fb_ix2] += 64;
+                    }
+
+                    LAST_IX = ix;
+                    LAST_IY= iy;
+                }
 
                 /*
                 if fb_ix > 0 && fb_ix < (FB_SIZE_X*(FB_SIZE_Y-2)) {
