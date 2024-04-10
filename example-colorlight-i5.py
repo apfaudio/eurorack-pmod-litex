@@ -84,6 +84,10 @@ def main():
 
     add_eurorack_pmod(soc)
 
+    # python ./deps/litex/litex/soc/software/crcfbigen.py build/colorlight_i5/rust-fw.bin -f -l -o rust-fw.fb
+    #sudo openFPGALoader -b colorlight-i5 -o 0x0E0000 -f rust-fw.fbi
+    soc.add_constant("FLASH_BOOT_ADDRESS", 0x2E0000)
+
     builder = Builder(soc, **parser.builder_argdict)
     if args.build:
         builder.build(**parser.toolchain_argdict)
