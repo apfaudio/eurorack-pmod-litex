@@ -18,7 +18,7 @@ SOURCES_ROOT = os.path.join(
         )
 
 class EurorackPmod(Module, AutoCSR):
-    def add_fifos(self, depth=512):
+    def add_fifos(self, depth=256):
 
         layout_rfifo = [("in0", 16),
                         ("in1", 16),

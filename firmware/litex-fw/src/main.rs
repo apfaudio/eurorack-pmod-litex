@@ -44,9 +44,7 @@ static mut LAST_IRQ: u32 = 0;
 static mut LAST_IRQ_LEN: u32 = 0;
 static mut LAST_IRQ_PERIOD: u32 = 0;
 
-static mut LAST_IX: isize = 0;
-static mut LAST_IY: isize = 0;
-static mut LAST_RDAT: u32 = 0;
+static mut RANDOM: u32 = 92;
 
 // Map the RISCV IRQ PLIC onto the fixed address present in the VexRISCV implementation.
 // TODO: ideally fetch this from the svf, its currently not exported by `svd2rust`!
@@ -92,61 +90,26 @@ unsafe fn irq_handler() {
                 let mut ch0raw = rdat as i16;
                 let mut ch1raw = (rdat >> 16) as i16;
 
-                ch0raw <<= 3;
-                ch1raw <<= 3;
+                /*
+                RANDOM ^= RANDOM << 13;
+                RANDOM ^= RANDOM >> 17;
+                RANDOM ^= RANDOM << 5;
+                let ch0raw = RANDOM as i16;
+                let ch1raw = (RANDOM >> 16) as i16;
+                */
 
                 let ix: isize = (FB_SIZE_Y/2 - FB_XOFFS + ((ch0raw as i32 * (FB_SIZE_X) as i32) >> 16) as usize) as isize;
                 let iy: isize = (FB_SIZE_X/2 + ((ch1raw as i32 * (FB_SIZE_Y) as i32) >> 16) as usize) as isize;
 
                 if iy > 0 && iy < FB_SIZE_Y as isize {
-
                     let fb_ix = (FB_SIZE_Y*(iy as usize)) + (ix as usize);
+                    FB[fb_ix] = 0xFF;
+                    /*
                     if FB[fb_ix] < (0xFF - 64) {
                         FB[fb_ix] += 64;
                     }
-
-                    let fb_ix2 = (FB_SIZE_Y*(((iy + LAST_IY)/2) as usize)) + (((ix + LAST_IX)/2) as usize);
-
-                    if FB[fb_ix2] < (0xFF - 64) {
-                        FB[fb_ix2] += 64;
-                    }
-
-                    LAST_IX = ix;
-                    LAST_IY= iy;
+                    */
                 }
-
-                /*
-                if fb_ix > 0 && fb_ix < (FB_SIZE_X*(FB_SIZE_Y-2)) {
-                    if FB[fb_ix] < (0xFF - 64) {
-                        FB[fb_ix] += 64;
-                    }
-                    if FB[fb_ix+1] < (0xFF - 64) {
-                        FB[fb_ix+1] += 64;
-                    }
-                    if FB[fb_ix-1] < (0xFF - 64) {
-                        FB[fb_ix-1] += 64;
-                    }
-                    if FB[fb_ix+FB_SIZE_X] < (0xFF - 64) {
-                        FB[fb_ix+FB_SIZE_X] += 64;
-                    }
-                    if FB[fb_ix-FB_SIZE_X] < (0xFF - 64) {
-                        FB[fb_ix-FB_SIZE_X] += 64;
-                    }
-                }
-                */
-                /*
-                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2+1)) + (ix+FB_SIZE_X/2-FB_XOFFS))] = 0xFF;
-                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2-1)) + (ix+FB_SIZE_X/2-FB_XOFFS))] = 0xFF;
-                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/2-FB_XOFFS+1))] = 0xFF;
-                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)) + (ix+FB_SIZE_X/2-FB_XOFFS-1))] = 0xFF;
-                */
-
-                /*
-                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)+1) + (ix+FB_SIZE_X/2-FB_XOFFS+1))] = 0x7F;
-                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)+1) + (ix+FB_SIZE_X/2-FB_XOFFS-1))] = 0x7F;
-                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)-1) + (ix+FB_SIZE_X/2-FB_XOFFS+1))] = 0x7F;
-                FB[((FB_SIZE_Y*(iy+FB_SIZE_Y/2)-1) + (ix+FB_SIZE_X/2-FB_XOFFS-1))] = 0x7F;
-                */
             }
 
             peripherals.EURORACK_PMOD0.ev_pending().write(|w| w.bits(pending_subtype));
@@ -197,27 +160,7 @@ fn main() -> ! {
 
     loop {
         unsafe {
-            /*
-            log::info!("rdat: {:x}", LAST_RDAT);
-            log::info!("ch0: {}", LAST_CH0);
-            log::info!("ch1: {}", LAST_CH1);
-
-            // Print out some metrics as to how long our DSP operations are taking.
-            log::info!("irq_period: {}", LAST_IRQ_PERIOD);
-            log::info!("irq_len: {}", LAST_IRQ_LEN);
-            if LAST_IRQ_PERIOD != 0 {
-                log::info!("irq_load_percent: {}", (LAST_IRQ_LEN * 100) / LAST_IRQ_PERIOD);
-            }
-            */
-
             for p in 0..(FB_SIZE_X*FB_SIZE_Y) {
-                /*
-                if FB[p] > 32 {
-                    FB[p] -= 32;
-                } else {
-                    FB[p] = 0;
-                }
-                */
                 FB[p] >>= 1;
             }
         }
