@@ -1,3 +1,5 @@
+**UPDATE:** In general I have moved away from LiteX in favor of a more modern Amaranth workflow. This repository is not maintained.
+
 **WARN:** if you're just getting started with `eurorack-pmod` please [start here instead](https://github.com/apfelaudio/eurorack-pmod), this repository is a template for more advanced projects :)
 
 # Real-time Audio DSP (in Rust, on a RISC-V softcore, on an FPGA).
